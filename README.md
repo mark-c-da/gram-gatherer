@@ -18,16 +18,38 @@ If Instagram blocks the download, paste the caption and/or drop the video or scr
 python scripts/gather.py "URL" --caption "pasted caption" --media "path/to/video.mp4"
 ```
 
-One URL per run. Duplicates are skipped by Instagram shortcode (`library/index.json`).
+One URL per run in single-URL mode. Duplicates are skipped by Instagram shortcode (`library/index.json`).
+
+### Twos MCP path (Cursor-orchestrated)
+
+When Twos MCP is connected, the agent can drain a Twos list and write results back **through MCP** (no `TWOS_API_KEY` in the CLI):
+
+1. Agent reads the Twos list via MCP and writes URLs to a file.
+2. CLI drains the file into `library/`.
+3. Agent creates a new Twos list + things from the emitted payload.
+
+```bash
+python scripts/gather.py --from-file cache/twos-mcp-urls.txt --emit-twos-payload \
+  --twos-source-title "Saved Instagram"
+```
+
+See skill `gram-gatherer-twos-mcp` and [docs/PATHS.md](docs/PATHS.md) for when to use MCP vs REST vs paste.
+
+### Twos REST path (automation)
+
+Headless `--from-twos` / `--to-twos` with `TWOS_API_KEY` lives on the Workflow 1 PR. Same extract pipeline; Python talks to Twos over HTTPS.
 
 ## Layout
 
 - `library/recipes/`, `library/books/`, `library/albums/`, `library/workouts/`, `library/other/` — one markdown file per item (this is the searchable library)
 - `library/index.json` — shortcode → file path, used to skip duplicates
 - `cache/` — temporary downloads only; deleted after a successful save (gitignored)
-- `scripts/gather.py` — CLI
-- `scripts/adapters/url.py` — v1 input (single URL). Stubs for inbox / Twos / URL-file sit next to it
-- `.cursor/skills/gram-gatherer/SKILL.md` — agent workflow
+- `scripts/gather.py` — CLI (single URL or `--from-file`)
+- `scripts/adapters/url.py` — single-URL input
+- `scripts/adapters/file.py` — URL-file batch (MCP path handoff)
+- `docs/PATHS.md` — which path to use (paste / MCP / REST / file / phone)
+- `.cursor/skills/gram-gatherer/SKILL.md` — single-URL agent workflow
+- `.cursor/skills/gram-gatherer-twos-mcp/SKILL.md` — Twos MCP in/out workflow
 
 ## Setup
 

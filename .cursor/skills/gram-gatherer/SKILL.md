@@ -14,7 +14,10 @@ Repo root is the directory that contains `scripts/gather.py` and `library/`.
 - User pastes an `instagram.com` `/p/`, `/reel/`, or `/reels/` URL
 - User asks to gather, extract, or save a saved Instagram post
 
-v1 is **one URL per run**. If they paste several, process sequentially.
+v1 is **one URL per CLI invocation**. If they paste several, process sequentially — or write them to a file and use `--from-file` (see Twos MCP skill / [docs/PATHS.md](../../../docs/PATHS.md)).
+
+For **Twos MCP** drain + write-back (no API key), use skill `gram-gatherer-twos-mcp`.
+For **Twos REST** headless batch (`TWOS_API_KEY`), see Workflow 1 / PATHS.md path C.
 
 ## Workflow
 
@@ -167,7 +170,11 @@ When tidying after `saved`, keep frontmatter and the `## Raw` section. Improve t
 
 ## Input adapters
 
-v1 input is a single URL (`scripts/adapters/url.py`). Do not implement Twos export, inbox drain, or URL-file batching unless the user asks. Those stubs live next to the URL adapter on purpose.
+- `scripts/adapters/url.py` — single Instagram URL
+- `scripts/adapters/file.py` — URL list file (`--from-file`, Twos MCP handoff)
+- `twos.py` / `inbox.py` — REST Twos drain is on the Workflow 1 branch; inbox still a stub
+
+Path chooser: [docs/PATHS.md](../../../docs/PATHS.md).
 
 ## Reply shape
 
