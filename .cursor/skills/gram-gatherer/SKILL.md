@@ -14,7 +14,7 @@ Repo root is the directory that contains `scripts/gather.py` and `library/`.
 - User pastes an `instagram.com` `/p/`, `/reel/`, or `/reels/` URL
 - User asks to gather, extract, or save a saved Instagram post
 
-v1 is **one URL per run**. If they paste several, process sequentially.
+Single-URL mode is still one URL per CLI invocation. If they paste several in chat, process sequentially. Prefer `--from-twos` when the links already live on a Twos list (Workflow 1).
 
 ## Workflow
 
@@ -165,9 +165,27 @@ When tidying after `saved`, keep frontmatter and the `## Raw` section. Improve t
 ## Raw
 ```
 
+## Workflow 1 — Twos in + library + Twos out
+
+When the user wants to drain a Twos list of Instagram links (and optionally write text back to Twos):
+
+1. Confirm `TWOS_API_KEY` is set (or ask them to export it). Do not invent a key.
+2. Run from repo root:
+
+```bash
+python scripts/gather.py --from-twos "LIST NAME OR ID" --to-twos
+```
+
+Use `--to-twos-list "Title"` to name the new output list. Omit `--to-twos` to only write `library/`.
+
+3. Read the batch JSON: `results[]` entries use the same `status` values as single-URL mode. Each `saved` row may include `twos_push`.
+4. For any `needs_media` row, ask for caption/media and re-run **that URL** in single-URL mode (batch does not accept `--caption` / `--media`).
+
 ## Input adapters
 
-v1 input is a single URL (`scripts/adapters/url.py`). Do not implement Twos export, inbox drain, or URL-file batching unless the user asks. Those stubs live next to the URL adapter on purpose.
+- `scripts/adapters/url.py` — single Instagram URL
+- `scripts/adapters/twos.py` — Twos list → jobs (Workflow 1)
+- `inbox.py` / `file.py` — still stubs unless the user asks
 
 ## Reply shape
 
