@@ -2,7 +2,7 @@
 
 Paste one Instagram post or reel URL into Cursor. The gram-gatherer skill runs a Python CLI that extracts a recipe, book, album, workout, or other item into a searchable markdown file.
 
-Text files are the library. Instagram (and Twos) stay capture inboxes.
+Markdown under `library/` is the searchable store. Twos can be a **capture inbox** (list of Instagram links) and, in Workflow 1, also receive the extracted text back on a **new list** (API things — not `.txt` files).
 
 ## Use it from chat
 
@@ -18,15 +18,34 @@ If Instagram blocks the download, paste the caption and/or drop the video or scr
 python scripts/gather.py "URL" --caption "pasted caption" --media "path/to/video.mp4"
 ```
 
-One URL per run. Duplicates are skipped by Instagram shortcode (`library/index.json`).
+One URL per run (single-URL mode). Duplicates are skipped by Instagram shortcode (`library/index.json`).
+
+### Workflow 1 — Twos list in, library + Twos list out
+
+1. Put Instagram post/reel links on a Twos list (thing `url` field and/or links in the text).
+2. Set `TWOS_API_KEY` (Twos → Settings → Advanced → API Keys; needs `read:lists`, `write:lists`, `write:things`).
+3. Drain the list sequentially:
+
+```bash
+export TWOS_API_KEY=twos_...
+python scripts/gather.py --from-twos "Saved Instagram" --to-twos
+```
+
+Optional: `--to-twos-list "My gathered books"` sets the new output list title (implies `--to-twos`). Default title is `Gathered from <source> — YYYY-MM-DD`.
+
+Each successful save still writes `library/...`. It also creates a Twos thing on the new list: title line, Instagram `url`, and the markdown body as the thing’s long-form `note`.
+
+`--from-twos` alone drains into the library without write-back.
 
 ## Layout
 
 - `library/recipes/`, `library/books/`, `library/albums/`, `library/workouts/`, `library/other/` — one markdown file per item (this is the searchable library)
 - `library/index.json` — shortcode → file path, used to skip duplicates
 - `cache/` — temporary downloads only; deleted after a successful save (gitignored)
-- `scripts/gather.py` — CLI
-- `scripts/adapters/url.py` — v1 input (single URL). Stubs for inbox / Twos / URL-file sit next to it
+- `scripts/gather.py` — CLI (single URL or `--from-twos`)
+- `scripts/adapters/url.py` — single-URL input
+- `scripts/adapters/twos.py` — Twos list → Instagram jobs
+- `scripts/lib/twos_client.py` / `twos_out.py` — Twos REST + write-back
 - `.cursor/skills/gram-gatherer/SKILL.md` — agent workflow
 
 ## Setup
@@ -36,6 +55,8 @@ python -m pip install -r requirements.txt
 ```
 
 On Windows, use `py -3` if `python` is not on PATH. Whisper and ffmpeg are installed for this Windows user (any project), not only gram-gatherer.
+
+For Workflow 1, also export `TWOS_API_KEY`.
 
 Instagram usually will not serve media anonymously. If yt-dlp fails, pass cookies from a browser where you are logged into Instagram:
 
@@ -64,4 +85,4 @@ Caption is the first content check. If it already names the recipe, books, album
 
 ## Later
 
-Same pipeline, different shells: an app would queue URLs and search `library/`; an iPhone Shortcut should append URLs to an inbox file, not scrape Instagram. See `scripts/adapters/inbox.py`.
+Phone (Workflow 2): iOS Shortcut / Cursor mobile for Twos **output** without draining a Twos inbox. Inbox file drain remains a stub — see `scripts/adapters/inbox.py`.
