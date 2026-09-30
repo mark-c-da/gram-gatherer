@@ -1,4 +1,8 @@
-"""Caption, OCR, then Whisper — in that order."""
+"""Caption, then carousel OCR and/or Whisper — in that order.
+
+OCR runs only on image carousels (2+ stills, no video). Reel/video thumbnails
+and lone oEmbed thumbs are never OCR'd — that path was noisy and error-prone.
+"""
 
 from __future__ import annotations
 
@@ -10,9 +14,21 @@ from pathlib import Path
 
 from lib.fetch import FetchResult
 
-IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic", ".heif"}
 VIDEO_EXTS = {".mp4", ".m4v", ".mov", ".webm", ".mkv"}
 AUDIO_EXTS = {".wav", ".mp3", ".m4a", ".aac", ".ogg", ".flac"}
+# Single decorative thumbs — never treat as a carousel slide set.
+NON_CAROUSEL_IMAGE_NAMES = {"oembed-thumb.jpg"}
+
+
+def _ensure_heif_support() -> None:
+    """Register HEIF opener when pillow-heif is installed (real .heic files)."""
+    try:
+        from pillow_heif import register_heif_opener
+
+        register_heif_opener()
+    except ImportError:
+        pass
 
 
 @dataclass
@@ -51,17 +67,16 @@ def extract_text(
         result.skipped = _unique(result.skipped)
         return result
 
-    images = list(fetched.images)
     videos = list(fetched.videos)
-    if images:
-        ocr = _ocr_images(images)
+    slides = carousel_slide_images(fetched)
+    if slides:
+        ocr = _ocr_images(slides)
         if ocr.text:
             result.ocr_text = ocr.text
             result.sources_used.append("ocr")
         result.skipped.extend(ocr.skipped)
-    elif videos:
-        # Stills-only OCR is skipped when there are no image files.
-        pass
+    else:
+        result.skipped.append("ocr: not a carousel (need 2+ stills, no video)")
 
     if videos:
         whisper = _whisper_videos(videos)
@@ -73,6 +88,26 @@ def extract_text(
     result.sources_used = _unique(result.sources_used)
     result.skipped = _unique(result.skipped)
     return result
+
+
+def carousel_slide_images(fetched: FetchResult) -> list[Path]:
+    """Return stills to OCR only when this looks like an image carousel.
+
+    - 2+ image files after filtering out oEmbed/decorative thumbs
+    - No video (reels often write 1 thumbnail — never OCR that)
+    """
+    if fetched.videos:
+        return []
+    slides: list[Path] = []
+    for path in fetched.images:
+        if path.suffix.lower() not in IMAGE_EXTS:
+            continue
+        if path.name.lower() in NON_CAROUSEL_IMAGE_NAMES:
+            continue
+        slides.append(path)
+    if len(slides) < 2:
+        return []
+    return slides
 
 
 @dataclass
@@ -88,20 +123,41 @@ def _ocr_images(images: list[Path]) -> _Piece:
     except ImportError:
         return _Piece(skipped=["ocr: install pillow and pytesseract, plus Tesseract OCR"])
 
-    if shutil.which("tesseract") is None:
+    _ensure_heif_support()
+
+    tesseract = shutil.which("tesseract") or shutil.which("tesseract.exe")
+    if tesseract is None:
+        # Common Windows install path when PATH was not refreshed.
+        for candidate in (
+            Path(os.environ.get("ProgramFiles", r"C:\Program Files"))
+            / "Tesseract-OCR"
+            / "tesseract.exe",
+            Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"))
+            / "Tesseract-OCR"
+            / "tesseract.exe",
+        ):
+            if candidate.is_file():
+                pytesseract.pytesseract.tesseract_cmd = str(candidate)
+                tesseract = str(candidate)
+                break
+    if tesseract is None:
         return _Piece(skipped=["ocr: tesseract binary not found on PATH"])
 
     chunks: list[str] = []
+    skipped: list[str] = []
     for path in images:
         if path.suffix.lower() not in IMAGE_EXTS:
             continue
         try:
-            text = pytesseract.image_to_string(Image.open(path))
-        except Exception as exc:  # noqa: BLE001 — OCR should never abort the run
-            return _Piece(text="\n".join(chunks).strip(), skipped=[f"ocr: {exc}"])
+            with Image.open(path) as img:
+                # HEIC/palette/odd modes → RGB so Tesseract always gets a plain bitmap.
+                text = pytesseract.image_to_string(img.convert("RGB"))
+        except Exception as exc:  # noqa: BLE001 — one bad slide must not abort the carousel
+            skipped.append(f"ocr: {path.name}: {exc}")
+            continue
         if text.strip():
             chunks.append(text.strip())
-    return _Piece(text="\n\n".join(chunks).strip())
+    return _Piece(text="\n\n".join(chunks).strip(), skipped=skipped)
 
 
 def _whisper_videos(videos: list[Path]) -> _Piece:

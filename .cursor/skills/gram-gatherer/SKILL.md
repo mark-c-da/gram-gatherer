@@ -84,7 +84,7 @@ Then re-run `gather.py` with those flags.
 Caption is the first content check, not a fallback. Do not skip ahead to OCR or Whisper while a usable caption exists.
 
 1. **Caption** (yt-dlp metadata or a pasted caption). If it already names the recipe, books, album, or workout, write the file and stop. No download, OCR, or Whisper.
-2. **Carousel / stills** — OCR (Tesseract). If images are in chat, you may also read them with vision and merge useful text into the file after the CLI write.
+2. **Carousel only** — OCR (Tesseract) when there are **2+ stills and no video**. Never OCR reel/video thumbnails or a lone oEmbed thumb. If slides are in chat, you may also read them with vision after the CLI write.
 3. **Reel / video** — audio then Whisper. Missing Whisper/ffmpeg is a skip, not a hard fail.
 
 ## Dedup

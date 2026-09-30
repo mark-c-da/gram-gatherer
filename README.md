@@ -1,39 +1,73 @@
 # gram-gatherer
 
-Paste one Instagram post or reel URL into Cursor. The gram-gatherer skill runs a Python CLI that extracts a recipe, book, album, workout, or other item into a searchable markdown file.
+Paste Instagram post/reel URLs (or drain a Twos list). A Python CLI extracts recipes, books, albums, workouts, and other items into searchable markdown under `library/`. Twos can be the capture inbox and, via Cursor’s Twos MCP, the place extracted text lands again.
 
-Text files are the library. Instagram (and Twos) stay capture inboxes.
+## What’s working now (Sep 2026)
+
+- **Twos MCP path:** read a Twos list → `--from-file` batch gather → create a dated Twos list (e.g. `_gram-gatherer_YYYY-MM-DD`) with visible titles
+- **Caption-first extract:** if the caption already has the list, skip media
+- **Carousel OCR only:** Tesseract runs only on **2+ stills with no video** (not reel thumbnails)
+- **HEIC/HEIF slides:** Instagram carousel thumbs in `.heic` are treated as images (`pillow-heif`)
+- **Reels → Whisper:** audio transcription when caption is thin
+- **Cookies:** on this machine, **Opera** works best (`--cookies-from-browser opera`). Close Opera briefly if yt-dlp can’t copy the cookie DB
+
+## Workflow diagram
+
+### End-to-end (Twos MCP)
+
+```mermaid
+flowchart LR
+  twosIn[Twos list of IG links] -->|MCP get_list| agent[Cursor agent]
+  agent -->|URL file| cli[gather.py --from-file]
+  cli --> library[library markdown]
+  cli -->|emit payload| agent
+  agent -->|MCP create_list| twosOut["_gram-gatherer_DATE Twos list"]
+```
+
+### Extract pipeline (inside gather)
+
+```mermaid
+flowchart TD
+  url[Instagram URL] --> caption[Fetch caption via yt-dlp + cookies]
+  caption -->|caption sufficient| write[Write library file]
+  caption -->|thin caption| media{Media type?}
+  media -->|2+ stills no video| ocr[OCR Tesseract incl HEIC]
+  media -->|has video| whisper[Whisper transcript]
+  media -->|no media| needs[needs_media]
+  ocr --> write
+  whisper --> write
+  write --> index[library/index.json dedup]
+```
+
+Silent on-screen text reels (no caption, no spoken titles) are **not** covered yet — see “Later” below.
 
 ## Use it from chat
 
-Paste a URL like `https://www.instagram.com/reel/SHORTCODE/`. The skill runs:
+### Single URL
 
 ```bash
-python scripts/gather.py "https://www.instagram.com/reel/SHORTCODE/"
+py -3 scripts/gather.py "https://www.instagram.com/reel/SHORTCODE/" --cookies-from-browser opera
 ```
 
-If Instagram blocks the download, paste the caption and/or drop the video or screenshots, then re-run:
+If Instagram blocks the download, paste the caption and/or drop media:
 
 ```bash
-python scripts/gather.py "URL" --caption "pasted caption" --media "path/to/video.mp4"
+py -3 scripts/gather.py "URL" --caption "pasted caption" --media "path/to/video.mp4"
 ```
 
-One URL per run in single-URL mode. Duplicates are skipped by Instagram shortcode (`library/index.json`).
+### Twos MCP path (preferred when Twos MCP is connected)
 
-### Twos MCP path (Cursor-orchestrated)
-
-When Twos MCP is connected, the agent can drain a Twos list and write results back **through MCP** (no `TWOS_API_KEY` in the CLI):
-
-1. Agent reads the Twos list via MCP and writes URLs to a file.
+1. Agent reads the Twos list via MCP and writes Instagram URLs to a file.
 2. CLI drains the file into `library/`.
-3. Agent creates a new Twos list + things from the emitted payload.
+3. Agent creates a new Twos list (name like `_gram-gatherer_2026-09-29`) with titles as visible bullets.
 
 ```bash
-python scripts/gather.py --from-file cache/twos-mcp-urls.txt --emit-twos-payload \
-  --twos-source-title "Saved Instagram"
+py -3 scripts/gather.py --from-file cache/twos-mcp-urls.txt --cookies-from-browser opera --emit-twos-payload \
+  --twos-source-title "Saved Instagram" \
+  --twos-output-title "_gram-gatherer_2026-09-29"
 ```
 
-See skill `gram-gatherer-twos-mcp` and [docs/PATHS.md](docs/PATHS.md) for when to use MCP vs REST vs paste.
+Skills: `gram-gatherer` (single URL), `gram-gatherer-twos-mcp` (Twos in/out). Path chooser: [docs/PATHS.md](docs/PATHS.md).
 
 ### Twos REST path (automation)
 
@@ -41,39 +75,41 @@ Headless `--from-twos` / `--to-twos` with `TWOS_API_KEY` lives on the Workflow 1
 
 ## Layout
 
-- `library/recipes/`, `library/books/`, `library/albums/`, `library/workouts/`, `library/other/` — one markdown file per item (this is the searchable library)
-- `library/index.json` — shortcode → file path, used to skip duplicates
-- `cache/` — temporary downloads only; deleted after a successful save (gitignored)
+- `library/recipes/`, `library/books/`, `library/albums/`, `library/workouts/`, `library/other/` — one markdown file per item
+- `library/index.json` — shortcode → file path (dedup)
+- `cache/` — temporary downloads; deleted after a successful save (gitignored)
 - `scripts/gather.py` — CLI (single URL or `--from-file`)
-- `scripts/adapters/url.py` — single-URL input
-- `scripts/adapters/file.py` — URL-file batch (MCP path handoff)
-- `docs/PATHS.md` — which path to use (paste / MCP / REST / file / phone)
-- `.cursor/skills/gram-gatherer/SKILL.md` — single-URL agent workflow
-- `.cursor/skills/gram-gatherer-twos-mcp/SKILL.md` — Twos MCP in/out workflow
+- `scripts/adapters/url.py` / `file.py` — inputs
+- `scripts/lib/extract.py` — caption → carousel OCR → Whisper
+- `docs/PATHS.md` — paste / MCP / REST / file / phone
 
 ## Setup
 
 ```bash
-python -m pip install -r requirements.txt
+py -3 -m pip install -r requirements.txt
 ```
 
-On Windows, use `py -3` if `python` is not on PATH. Whisper and ffmpeg are installed for this Windows user (any project), not only gram-gatherer.
+Also install [Tesseract OCR](https://github.com/UB-Mannheim/tesseract/wiki) on Windows (e.g. winget `UB-Mannheim.TesseractOCR`) so carousel OCR works.
 
-Instagram usually will not serve media anonymously. If yt-dlp fails, pass cookies from a browser where you are logged into Instagram:
+Instagram cookies (pick the browser where you’re logged in):
 
 ```bash
-python scripts/gather.py "URL" --cookies-from-browser chrome
+py -3 scripts/gather.py "URL" --cookies-from-browser opera
 ```
 
-`edge` and `firefox` work too. You can also set `GRAM_COOKIES_FROM_BROWSER`.
+`chrome`, `edge`, and `firefox` work when their cookie DB is readable. `GRAM_COOKIES_FROM_BROWSER` also works.
 
 ### Optional: OCR and Whisper
 
-Caption is the first content check. If it already names the recipe, books, album, or workout, gather writes the file and does not download media, OCR, or transcribe. Carousel stills use OCR only after that. Reels use Whisper only after that. Missing tools skip that step.
+| Step | When it runs |
+|---|---|
+| Caption | Always tried first. If sufficient → write and stop |
+| OCR | Only image carousels (2+ stills, no video), including `.heic` |
+| Whisper | Reels/videos when caption is thin |
 
-- **OCR:** install [Tesseract](https://github.com/tesseract-ocr/tesseract), then `pip install pillow pytesseract`
-- **Whisper (local):** machine-wide `faster-whisper` on your user Python. `ffmpeg` is on PATH. From any folder: `transcribe path\to\file.mp4`. Gram-gatherer also uses these. Reinstall with `py -3 -m pip install faster-whisper`.
-- **Whisper (API):** `pip install openai` and set `OPENAI_API_KEY`
+- **OCR:** Tesseract on PATH + `pillow`, `pytesseract`, `pillow-heif`
+- **Whisper (local):** `faster-whisper` + `ffmpeg`
+- **Whisper (API):** `openai` + `OPENAI_API_KEY`
 
 ## CLI exit codes
 
@@ -86,4 +122,6 @@ Caption is the first content check. If it already names the recipe, books, album
 
 ## Later
 
-Same pipeline, different shells: an app would queue URLs and search `library/`; an iPhone Shortcut should append URLs to an inbox file, not scrape Instagram. See `scripts/adapters/inbox.py`.
+- **Silent text reels:** no useful caption, no spoken book titles — only on-screen text. Needs a reel-frame OCR / vision path (planned next).
+- Phone Shortcut / inbox file drain — see `scripts/adapters/inbox.py`
+- Twos REST Workflow 1 PR for headless automation

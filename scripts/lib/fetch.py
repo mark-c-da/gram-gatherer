@@ -15,7 +15,7 @@ from pathlib import Path
 
 from lib.parse import InstagramRef
 
-IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic", ".heif"}
 VIDEO_EXTS = {".mp4", ".m4v", ".mov", ".webm", ".mkv"}
 SKIP_EXTS = {".json", ".description", ".txt", ".vtt", ".srt"}
 

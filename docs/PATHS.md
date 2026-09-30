@@ -14,6 +14,22 @@ Same extract pipeline (`scripts/gather.py` → `library/`). Different **shells**
 
 Redundancy is intentional: B and C both do “Twos in + library + Twos out.” Use B when MCP is handy; C when you need headless automation.
 
+## Extract pipeline (shared by A–D)
+
+```mermaid
+flowchart TD
+  url[Instagram URL] --> caption[Caption via yt-dlp + browser cookies]
+  caption -->|sufficient| write[Write library markdown]
+  caption -->|thin| media{Media?}
+  media -->|carousel 2+ stills| ocr[OCR including HEIC]
+  media -->|reel or video| whisper[Whisper]
+  media -->|none| needs[needs_media]
+  ocr --> write
+  whisper --> write
+```
+
+Silent on-screen reels (no caption, no speech) are not handled yet.
+
 ## A — Chat paste
 
 1. User pastes Instagram URL(s).
