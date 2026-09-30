@@ -23,12 +23,16 @@ flowchart TD
   caption -->|thin| media{Media?}
   media -->|carousel 2+ stills| ocr[OCR including HEIC]
   media -->|reel or video| whisper[Whisper]
+  whisper -->|still thin| frames[Sample up to 12 frames by duration]
+  frames --> frameOcr[ocr-frames]
+  frames --> archive[archive/frames/shortcode]
   media -->|none| needs[needs_media]
   ocr --> write
-  whisper --> write
+  frameOcr --> write
+  whisper -->|sufficient| write
 ```
 
-Silent on-screen reels (no caption, no speech) are not handled yet.
+Silent on-screen reels use frame OCR after Whisper. Sampled JPEGs are archived under `archive/frames/` for accuracy review (not cleared with `cache/`).
 
 ## A — Chat paste
 

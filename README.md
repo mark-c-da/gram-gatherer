@@ -9,6 +9,7 @@ Paste Instagram post/reel URLs (or drain a Twos list). A Python CLI extracts rec
 - **Carousel OCR only:** Tesseract runs only on **2+ stills with no video** (not reel thumbnails)
 - **HEIC/HEIF slides:** Instagram carousel thumbs in `.heic` are treated as images (`pillow-heif`)
 - **Reels → Whisper:** audio transcription when caption is thin
+- **Silent reel frame OCR:** if Whisper is still thin, sample up to 12 frames by duration, OCR them, archive JPEGs under `archive/frames/`
 - **Cookies:** on this machine, **Opera** works best (`--cookies-from-browser opera`). Close Opera briefly if yt-dlp can’t copy the cookie DB
 
 ## Workflow diagram
@@ -33,13 +34,17 @@ flowchart TD
   caption -->|thin caption| media{Media type?}
   media -->|2+ stills no video| ocr[OCR Tesseract incl HEIC]
   media -->|has video| whisper[Whisper transcript]
+  whisper -->|still thin| frames[Duration-based frame sample max 12]
+  frames --> frameOcr[ocr-frames]
+  frames --> archive[archive/frames]
   media -->|no media| needs[needs_media]
   ocr --> write
-  whisper --> write
+  frameOcr --> write
+  whisper -->|sufficient| write
   write --> index[library/index.json dedup]
 ```
 
-Silent on-screen text reels (no caption, no spoken titles) are **not** covered yet — see “Later” below.
+Silent on-screen text reels use **frame OCR** after Whisper. Sampled frames are archived under `archive/frames/<shortcode>/` while we calibrate sampling accuracy.
 
 ## Use it from chat
 
@@ -106,6 +111,7 @@ py -3 scripts/gather.py "URL" --cookies-from-browser opera
 | Caption | Always tried first. If sufficient → write and stop |
 | OCR | Only image carousels (2+ stills, no video), including `.heic` |
 | Whisper | Reels/videos when caption is thin |
+| Frame OCR | After Whisper, if text is still thin: sample up to 12 frames by duration, OCR them (`ocr-frames`). Stills are copied to `archive/frames/<shortcode>/` (gitignored) for sampling accuracy review; `cache/` still clears after save |
 
 - **OCR:** Tesseract on PATH + `pillow`, `pytesseract`, `pillow-heif`
 - **Whisper (local):** `faster-whisper` + `ffmpeg`
@@ -122,6 +128,6 @@ py -3 scripts/gather.py "URL" --cookies-from-browser opera
 
 ## Later
 
-- **Silent text reels:** no useful caption, no spoken book titles — only on-screen text. Needs a reel-frame OCR / vision path (planned next).
 - Phone Shortcut / inbox file drain — see `scripts/adapters/inbox.py`
 - Twos REST Workflow 1 PR for headless automation
+- Tune or prune `archive/frames/` once frame-sampling accuracy looks good
