@@ -1,0 +1,6 @@
+# Shortcut / share-sheet drop file for gram-gatherer (Workflow 2).
+# Copy to inbox.txt (gitignored) or point an iCloud file at the same path.
+# One Instagram URL per line. Optional local media: url | path/to/file
+#
+# https://www.instagram.com/reel/SHORTCODE/
+# https://www.instagram.com/p/SHORTCODE/

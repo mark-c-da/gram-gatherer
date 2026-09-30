@@ -1,11 +1,12 @@
 # gram-gatherer
 
-Paste Instagram post/reel URLs (or drain a Twos list). A Python CLI extracts recipes, books, albums, workouts, and other items into searchable markdown under `library/`. Twos can be the capture inbox and the place extracted text lands again — either via Cursor’s Twos MCP or the Twos REST API.
+Paste Instagram post/reel URLs (or drain a Twos list / phone inbox). A Python CLI extracts recipes, books, albums, workouts, and other items into searchable markdown under `library/`. Twos can be the capture inbox and the place extracted text lands again — either via Cursor’s Twos MCP or the Twos REST API. An iOS Shortcut can append links to `inbox.txt` for later drain.
 
 ## What’s working now (Sep 2026)
 
 - **Twos MCP path:** read a Twos list → `--from-file` batch gather → create a dated Twos list (e.g. `_gram-gatherer_YYYY-MM-DD`) with visible titles
 - **Twos REST path:** `--from-twos` / `--to-twos` with `TWOS_API_KEY` for headless drain + write-back
+- **iOS inbox path:** Shortcut appends URLs to `inbox.txt` → `--from-inbox` drains and clears saved/duplicate lines
 - **Caption-first extract:** if the caption already has the list, skip media
 - **Carousel OCR only:** Tesseract runs only on **2+ stills with no video** (not reel thumbnails)
 - **HEIC/HEIF slides:** Instagram carousel thumbs in `.heic` are treated as images (`pillow-heif`)
@@ -97,17 +98,30 @@ Optional: `--to-twos-list "My gathered books"` names the new output list (implie
 
 Each successful save still writes `library/...`. It also creates a Twos thing on the new list: title line, Instagram `url`, and the markdown body as the thing’s long-form `note`. `--from-twos` alone drains into the library without write-back.
 
+### iOS inbox path (Shortcut → file)
+
+1. Build the Shortcut described in [docs/IOS.md](docs/IOS.md) (Share Sheet → append URL to `inbox.txt`).
+2. After sync, drain on a machine with cookies:
+
+```bash
+py -3 scripts/gather.py --from-inbox --cookies-from-browser opera
+```
+
+Copy `inbox.example.txt` → `inbox.txt` for the first drop (`inbox.txt` is gitignored). Use `--keep-inbox` to leave the file unchanged; otherwise saved/duplicate lines are removed so the Shortcut can keep appending.
+
 ## Layout
 
 - `library/recipes/`, `library/books/`, `library/albums/`, `library/workouts/`, `library/other/` — one markdown file per item
 - `library/index.json` — shortcode → file path (dedup)
+- `inbox.txt` — Shortcut drop file (gitignored); see `inbox.example.txt`
 - `cache/` — temporary downloads; deleted after a successful save (gitignored)
 - `archive/frames/` — sampled reel frames for OCR accuracy review (gitignored)
-- `scripts/gather.py` — CLI (single URL, `--from-file`, or `--from-twos`)
-- `scripts/adapters/url.py` / `file.py` / `twos.py` — inputs
+- `scripts/gather.py` — CLI (single URL, `--from-file`, `--from-inbox`, or `--from-twos`)
+- `scripts/adapters/url.py` / `file.py` / `inbox.py` / `twos.py` — inputs
 - `scripts/lib/twos_client.py` / `twos_out.py` — Twos REST + write-back
 - `scripts/lib/extract.py` — caption → carousel OCR → Whisper → frame OCR
 - `docs/PATHS.md` — paste / MCP / REST / file / phone
+- `docs/IOS.md` — Shortcut setup + inbox drain
 
 ## Setup
 
@@ -151,5 +165,4 @@ py -3 scripts/gather.py "URL" --cookies-from-browser opera
 
 ## Later
 
-- Phone Shortcut / inbox file drain — see `scripts/adapters/inbox.py`
 - Tune or prune `archive/frames/` once frame-sampling accuracy looks good

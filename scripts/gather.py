@@ -3,6 +3,7 @@
 Modes:
 - single URL
 - --from-file — URL list (Twos MCP handoff: agent writes the file after MCP read)
+- --from-inbox — drain Shortcut / iCloud ``inbox.txt`` (clears saved/duplicate lines)
 - --from-twos — drain a Twos list via REST (TWOS_API_KEY); optional --to-twos write-back
 """
 
@@ -19,6 +20,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 from adapters.url import get_job  # noqa: E402
 from lib.batch_file import run_from_file  # noqa: E402
+from lib.batch_inbox import run_from_inbox  # noqa: E402
 from lib.batch_twos import run_from_twos  # noqa: E402
 from lib.pipeline import gather  # noqa: E402
 from lib.twos_client import TwosError  # noqa: E402
@@ -40,14 +42,14 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Extract a recipe, book, album, workout, or other item from Instagram. "
-            "Pass one URL, --from-file (MCP path), or --from-twos (REST)."
+            "Pass one URL, --from-file, --from-inbox, or --from-twos (REST)."
         )
     )
     parser.add_argument(
         "url",
         nargs="?",
         default="",
-        help="Instagram post or reel URL (or a shortcode). Omit when using --from-file / --from-twos.",
+        help="Instagram post or reel URL (or a shortcode). Omit when using --from-file / --from-inbox / --from-twos.",
     )
     parser.add_argument(
         "--from-file",
@@ -56,9 +58,25 @@ def main(argv: list[str] | None = None) -> int:
         help="Text file of Instagram URLs, one per line (optional: url | media_path)",
     )
     parser.add_argument(
+        "--from-inbox",
+        nargs="?",
+        const="inbox.txt",
+        default="",
+        metavar="PATH",
+        help=(
+            "Drain the Shortcut/iCloud inbox file (default: inbox.txt at repo root). "
+            "Removes saved/duplicate lines unless --keep-inbox."
+        ),
+    )
+    parser.add_argument(
+        "--keep-inbox",
+        action="store_true",
+        help="With --from-inbox: do not rewrite the inbox after drain",
+    )
+    parser.add_argument(
         "--emit-twos-payload",
         action="store_true",
-        help="With --from-file: include twos_mcp_writeback JSON for Cursor Twos MCP create_list/create_thing",
+        help="With --from-file / --from-inbox: include twos_mcp_writeback JSON for Cursor Twos MCP create_list/create_thing",
     )
     parser.add_argument(
         "--twos-source-title",
@@ -115,13 +133,17 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     from_file = (args.from_file or "").strip()
+    from_inbox = args.from_inbox  # already "" or path; const default when flag alone
     from_twos = (args.from_twos or "").strip()
     to_twos_list = (args.to_twos_list or "").strip() or None
     to_twos = bool(args.to_twos or to_twos_list)
     cookies = args.cookies_from_browser or None
+    modes = [bool(from_file), bool(from_inbox), bool(from_twos)]
+    if sum(modes) > 1:
+        parser.error("Pass only one of --from-file, --from-inbox, or --from-twos")
 
-    if from_file and from_twos:
-        parser.error("Pass either --from-file or --from-twos, not both")
+    if args.keep_inbox and not from_inbox:
+        parser.error("--keep-inbox requires --from-inbox")
 
     if from_file:
         if args.url:
@@ -146,13 +168,37 @@ def main(argv: list[str] | None = None) -> int:
         _emit(batch.to_dict())
         return EXIT_BY_STATUS.get(batch.worst_exit_status, 1)
 
+    if from_inbox:
+        if args.url:
+            parser.error("Pass either a URL or --from-inbox, not both")
+        if args.caption or args.media:
+            parser.error("--caption / --media only apply to single-URL mode")
+        if to_twos or to_twos_list:
+            parser.error("--to-twos / --to-twos-list require --from-twos (REST), not --from-inbox")
+        try:
+            batch = run_from_inbox(
+                from_inbox,
+                root=ROOT,
+                cookies_from_browser=cookies,
+                overwrite=args.overwrite,
+                clear_done=not args.keep_inbox,
+                emit_twos_payload=bool(args.emit_twos_payload),
+                source_list_title=(args.twos_source_title or "").strip() or None,
+                output_list_title=(args.twos_output_title or "").strip() or None,
+            )
+        except (OSError, ValueError) as exc:
+            _emit({"status": "error", "message": str(exc)})
+            return 1
+        _emit(batch.to_dict())
+        return EXIT_BY_STATUS.get(batch.worst_exit_status, 1)
+
     if from_twos:
         if args.url:
             parser.error("Pass either a URL or --from-twos, not both")
         if args.caption or args.media:
             parser.error("--caption / --media only apply to single-URL mode")
         if args.emit_twos_payload or args.twos_source_title or args.twos_output_title:
-            parser.error("--emit-twos-payload / --twos-*-title are for --from-file (MCP), not --from-twos")
+            parser.error("--emit-twos-payload / --twos-*-title are for --from-file / --from-inbox, not --from-twos")
         try:
             batch = run_from_twos(
                 from_twos,
@@ -169,12 +215,12 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_BY_STATUS.get(batch.worst_exit_status, 1)
 
     if args.emit_twos_payload or args.twos_source_title or args.twos_output_title:
-        parser.error("--emit-twos-payload / --twos-*-title require --from-file")
+        parser.error("--emit-twos-payload / --twos-*-title require --from-file or --from-inbox")
     if to_twos or to_twos_list:
         parser.error("--to-twos / --to-twos-list require --from-twos")
 
     if not (args.url or "").strip():
-        parser.error("Instagram URL is required unless --from-file or --from-twos is set")
+        parser.error("Instagram URL is required unless --from-file, --from-inbox, or --from-twos is set")
 
     job = get_job(args.url, caption=args.caption or None, media_paths=args.media)
     result = gather(

@@ -1,5 +1,6 @@
 cache/
 archive/
+inbox.txt
 __pycache__/
 *.py[cod]
 .venv/

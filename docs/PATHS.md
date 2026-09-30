@@ -10,7 +10,7 @@ Same extract pipeline (`scripts/gather.py` → `library/`). Different **shells**
 | Twos MCP connected; interactive drain + write-back | **B. Twos MCP** | Cursor MCP |
 | Large backlog / cron / no Cursor in the loop | **C. Twos REST** | `TWOS_API_KEY` |
 | Agent or Shortcut already has a URL list file | **D. URL file** | None (optional MCP write-back later) |
-| Phone capture only (no extract yet) | **E. Capture to Twos** | Twos app / Shortcut → Twos |
+| Phone capture (Shortcut → inbox or Twos) | **E. iOS capture** | None for inbox file; Twos app/MCP/REST for Twos |
 
 Redundancy is intentional: B and C both do “Twos in + library + Twos out.” Use B when MCP is handy; C when you need headless automation.
 
@@ -70,13 +70,29 @@ One Instagram URL per line; `#` comments allowed; optional `url | media_path`.
 
 Used as the handoff format for path B. Fine on its own for any backlog sitting in a text file.
 
-## E — Phone capture (Workflow 2, later)
+## E — iOS capture (Workflow 2)
 
-iOS Shortcut / Twos app dumps links into a Twos list (or inbox file). Extract happens later via B or C when a machine with yt-dlp/cookies is available. Cursor on iPhone directs agents; it does not run `gather.py` on-device.
+Phone only **queues** links. Extract runs later on a machine with yt-dlp/cookies.
+
+**Inbox file (Shortcut → `inbox.txt`):**
+
+1. iOS Shortcut appends the shared Instagram URL to `inbox.txt` (repo root or iCloud copy). See [IOS.md](IOS.md).
+2. On the gather machine:
+
+```bash
+python scripts/gather.py --from-inbox --cookies-from-browser opera
+```
+
+Saved/duplicate lines are removed from the inbox; `needs_media` / `error` stay. Use `--keep-inbox` to skip rewrite. Optional `--emit-twos-payload` for MCP write-back after drain.
+
+**Twos list:** share into Twos (app or Shortcut → Twos), then drain with path **B** or **C**.
+
+Cursor on iPhone can direct agents; it does not run `gather.py` on-device.
 
 ## Shared core
 
 - `lib/instagram_urls.py` — URL extraction (file + Twos REST adapters)
+- `adapters/inbox.py` / `lib/batch_inbox.py` — Shortcut inbox drain + prune
 - `lib/twos_payload.py` — thing shape for MCP write-back payloads
 - `lib/twos_out.py` — REST create_list / create_thing write-back
 

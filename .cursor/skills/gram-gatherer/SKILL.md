@@ -18,6 +18,7 @@ Single-URL mode is one URL per CLI invocation. If they paste several, process se
 
 For **Twos MCP** drain + write-back (no API key), use skill `gram-gatherer-twos-mcp`.
 For **Twos REST** headless batch (`TWOS_API_KEY`), use `--from-twos` / `--to-twos` below (path C in PATHS.md).
+For **iOS Shortcut inbox**, use `--from-inbox` (path E — [docs/IOS.md](../../../docs/IOS.md)).
 
 ## Workflow
 
@@ -191,10 +192,10 @@ Prefer skill `gram-gatherer-twos-mcp` when Twos MCP is connected and no API key 
 
 - `scripts/adapters/url.py` — single Instagram URL
 - `scripts/adapters/file.py` — URL list file (`--from-file`, Twos MCP handoff)
+- `scripts/adapters/inbox.py` — Shortcut / iCloud `inbox.txt` (`--from-inbox`)
 - `scripts/adapters/twos.py` — Twos list → jobs (`--from-twos`, REST)
-- `inbox.py` — still a stub for Shortcut / iCloud drop
 
-Path chooser: [docs/PATHS.md](../../../docs/PATHS.md).
+Path chooser: [docs/PATHS.md](../../../docs/PATHS.md). iOS Shortcut: [docs/IOS.md](../../../docs/IOS.md).
 
 ## Reply shape
 
