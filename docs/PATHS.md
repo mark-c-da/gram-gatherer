@@ -7,8 +7,8 @@ Same extract pipeline (`scripts/gather.py` → `library/`). Different **shells**
 | Situation | Path | Twos auth |
 |---|---|---|
 | Paste one or a few IG links in chat | **A. Chat paste** | None |
-| Twos MCP connected; interactive drain + write-back | **B. Twos MCP** (this PR) | Cursor MCP |
-| Large backlog / cron / no Cursor in the loop | **C. Twos REST** (Workflow 1 PR) | `TWOS_API_KEY` |
+| Twos MCP connected; interactive drain + write-back | **B. Twos MCP** | Cursor MCP |
+| Large backlog / cron / no Cursor in the loop | **C. Twos REST** | `TWOS_API_KEY` |
 | Agent or Shortcut already has a URL list file | **D. URL file** | None (optional MCP write-back later) |
 | Phone capture only (no extract yet) | **E. Capture to Twos** | Twos app / Shortcut → Twos |
 
@@ -57,9 +57,7 @@ Silent on-screen reels use frame OCR after Whisper. Sampled JPEGs are archived u
 1. `export TWOS_API_KEY=twos_…`
 2. `python scripts/gather.py --from-twos "List name" --to-twos`
 
-Python owns both Twos read and write. No MCP required.
-
-**Lives on:** Workflow 1 branch/PR (`cursor/twos-workflow-1-a782`). Merge both PRs to have B and C in one tree; then we can share URL-extraction helpers.
+Python owns both Twos read and write. No MCP required. Shared URL extraction lives in `scripts/lib/instagram_urls.py` (used by file + Twos adapters).
 
 ## D — URL file
 
@@ -76,12 +74,10 @@ Used as the handoff format for path B. Fine on its own for any backlog sitting i
 
 iOS Shortcut / Twos app dumps links into a Twos list (or inbox file). Extract happens later via B or C when a machine with yt-dlp/cookies is available. Cursor on iPhone directs agents; it does not run `gather.py` on-device.
 
-## Unification later
+## Shared core
 
-Candidate shared core (after both PRs land):
+- `lib/instagram_urls.py` — URL extraction (file + Twos REST adapters)
+- `lib/twos_payload.py` — thing shape for MCP write-back payloads
+- `lib/twos_out.py` — REST create_list / create_thing write-back
 
-- `lib/instagram_urls.py` — URL extraction (this PR)
-- `lib/twos_payload.py` — thing shape for MCP **and** REST create_thing bodies
-- One batch runner with pluggable “source” and “sink” (file / MCP-agent / REST)
-
-Until then: pick from the table; do not run B and C on the same list at the same time (duplicate library writes are skipped by shortcode; Twos write-back could double-create things).
+Do not run B and C on the same list at the same time (duplicate library writes are skipped by shortcode; Twos write-back could double-create things).

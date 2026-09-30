@@ -1,10 +1,11 @@
 # gram-gatherer
 
-Paste Instagram post/reel URLs (or drain a Twos list). A Python CLI extracts recipes, books, albums, workouts, and other items into searchable markdown under `library/`. Twos can be the capture inbox and, via Cursor’s Twos MCP, the place extracted text lands again.
+Paste Instagram post/reel URLs (or drain a Twos list). A Python CLI extracts recipes, books, albums, workouts, and other items into searchable markdown under `library/`. Twos can be the capture inbox and the place extracted text lands again — either via Cursor’s Twos MCP or the Twos REST API.
 
 ## What’s working now (Sep 2026)
 
 - **Twos MCP path:** read a Twos list → `--from-file` batch gather → create a dated Twos list (e.g. `_gram-gatherer_YYYY-MM-DD`) with visible titles
+- **Twos REST path:** `--from-twos` / `--to-twos` with `TWOS_API_KEY` for headless drain + write-back
 - **Caption-first extract:** if the caption already has the list, skip media
 - **Carousel OCR only:** Tesseract runs only on **2+ stills with no video** (not reel thumbnails)
 - **HEIC/HEIF slides:** Instagram carousel thumbs in `.heic` are treated as images (`pillow-heif`)
@@ -23,6 +24,15 @@ flowchart LR
   cli --> library[library markdown]
   cli -->|emit payload| agent
   agent -->|MCP create_list| twosOut["_gram-gatherer_DATE Twos list"]
+```
+
+### End-to-end (Twos REST)
+
+```mermaid
+flowchart LR
+  twosIn[Twos list of IG links] -->|TWOS_API_KEY| cli[gather.py --from-twos --to-twos]
+  cli --> library[library markdown]
+  cli -->|create_list + things| twosOut[New Twos list]
 ```
 
 ### Extract pipeline (inside gather)
@@ -76,16 +86,27 @@ Skills: `gram-gatherer` (single URL), `gram-gatherer-twos-mcp` (Twos in/out). Pa
 
 ### Twos REST path (automation)
 
-Headless `--from-twos` / `--to-twos` with `TWOS_API_KEY` lives on the Workflow 1 PR. Same extract pipeline; Python talks to Twos over HTTPS.
+Headless drain with `TWOS_API_KEY` (Twos → Settings → Advanced → API Keys; needs `read:lists`, `write:lists`, `write:things`):
+
+```bash
+export TWOS_API_KEY=twos_...
+py -3 scripts/gather.py --from-twos "Saved Instagram" --to-twos
+```
+
+Optional: `--to-twos-list "My gathered books"` names the new output list (implies `--to-twos`). Default title is `Gathered from <source> — YYYY-MM-DD`.
+
+Each successful save still writes `library/...`. It also creates a Twos thing on the new list: title line, Instagram `url`, and the markdown body as the thing’s long-form `note`. `--from-twos` alone drains into the library without write-back.
 
 ## Layout
 
 - `library/recipes/`, `library/books/`, `library/albums/`, `library/workouts/`, `library/other/` — one markdown file per item
 - `library/index.json` — shortcode → file path (dedup)
 - `cache/` — temporary downloads; deleted after a successful save (gitignored)
-- `scripts/gather.py` — CLI (single URL or `--from-file`)
-- `scripts/adapters/url.py` / `file.py` — inputs
-- `scripts/lib/extract.py` — caption → carousel OCR → Whisper
+- `archive/frames/` — sampled reel frames for OCR accuracy review (gitignored)
+- `scripts/gather.py` — CLI (single URL, `--from-file`, or `--from-twos`)
+- `scripts/adapters/url.py` / `file.py` / `twos.py` — inputs
+- `scripts/lib/twos_client.py` / `twos_out.py` — Twos REST + write-back
+- `scripts/lib/extract.py` — caption → carousel OCR → Whisper → frame OCR
 - `docs/PATHS.md` — paste / MCP / REST / file / phone
 
 ## Setup
@@ -95,6 +116,8 @@ py -3 -m pip install -r requirements.txt
 ```
 
 Also install [Tesseract OCR](https://github.com/UB-Mannheim/tesseract/wiki) on Windows (e.g. winget `UB-Mannheim.TesseractOCR`) so carousel OCR works.
+
+For Workflow 1 REST, also export `TWOS_API_KEY`.
 
 Instagram cookies (pick the browser where you’re logged in):
 
@@ -129,5 +152,4 @@ py -3 scripts/gather.py "URL" --cookies-from-browser opera
 ## Later
 
 - Phone Shortcut / inbox file drain — see `scripts/adapters/inbox.py`
-- Twos REST Workflow 1 PR for headless automation
 - Tune or prune `archive/frames/` once frame-sampling accuracy looks good

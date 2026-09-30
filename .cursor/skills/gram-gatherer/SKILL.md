@@ -14,10 +14,10 @@ Repo root is the directory that contains `scripts/gather.py` and `library/`.
 - User pastes an `instagram.com` `/p/`, `/reel/`, or `/reels/` URL
 - User asks to gather, extract, or save a saved Instagram post
 
-v1 is **one URL per CLI invocation**. If they paste several, process sequentially — or write them to a file and use `--from-file` (see Twos MCP skill / [docs/PATHS.md](../../../docs/PATHS.md)).
+Single-URL mode is one URL per CLI invocation. If they paste several, process sequentially — or write them to a file and use `--from-file` (see Twos MCP skill / [docs/PATHS.md](../../../docs/PATHS.md)).
 
 For **Twos MCP** drain + write-back (no API key), use skill `gram-gatherer-twos-mcp`.
-For **Twos REST** headless batch (`TWOS_API_KEY`), see Workflow 1 / PATHS.md path C.
+For **Twos REST** headless batch (`TWOS_API_KEY`), use `--from-twos` / `--to-twos` below (path C in PATHS.md).
 
 ## Workflow
 
@@ -44,7 +44,7 @@ Cookies (Instagram often requires a logged-in browser):
 python scripts/gather.py "URL" --cookies-from-browser chrome
 ```
 
-Use `edge` or `firefox` if that is where they are logged into Instagram. `GRAM_COOKIES_FROM_BROWSER` also works.
+Use `edge`, `firefox`, or `opera` if that is where they are logged into Instagram. `GRAM_COOKIES_FROM_BROWSER` also works.
 
 Optional user-supplied media (after a `needs_media` miss):
 
@@ -169,11 +169,30 @@ When tidying after `saved`, keep frontmatter and the `## Raw` section. Improve t
 ## Raw
 ```
 
+## Workflow 1 — Twos REST in + library + Twos out
+
+When the user wants headless drain of a Twos list (and optionally write text back) with an API key:
+
+1. Confirm `TWOS_API_KEY` is set (or ask them to export it). Do not invent a key.
+2. Run from repo root:
+
+```bash
+python scripts/gather.py --from-twos "LIST NAME OR ID" --to-twos
+```
+
+Use `--to-twos-list "Title"` to name the new output list. Omit `--to-twos` to only write `library/`.
+
+3. Read the batch JSON: `results[]` entries use the same `status` values as single-URL mode. Each `saved` row may include `twos_push`.
+4. For any `needs_media` row, ask for caption/media and re-run **that URL** in single-URL mode (batch does not accept `--caption` / `--media`).
+
+Prefer skill `gram-gatherer-twos-mcp` when Twos MCP is connected and no API key is needed.
+
 ## Input adapters
 
 - `scripts/adapters/url.py` — single Instagram URL
 - `scripts/adapters/file.py` — URL list file (`--from-file`, Twos MCP handoff)
-- `twos.py` / `inbox.py` — REST Twos drain is on the Workflow 1 branch; inbox still a stub
+- `scripts/adapters/twos.py` — Twos list → jobs (`--from-twos`, REST)
+- `inbox.py` — still a stub for Shortcut / iCloud drop
 
 Path chooser: [docs/PATHS.md](../../../docs/PATHS.md).
 
@@ -183,5 +202,5 @@ After a successful save:
 
 - **Type:** recipe | book | album | workout | other
 - **File:** `library/...`
-- **Sources:** caption / ocr / whisper / user-paste
+- **Sources:** caption / ocr / whisper / user-paste / ocr-frames
 - **Skipped:** whatever the JSON listed

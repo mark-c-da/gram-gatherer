@@ -1,8 +1,9 @@
 """CLI: Instagram URL(s) in, library markdown out.
 
 Modes:
-- single URL (original)
-- --from-file — drain a URL list (Twos MCP path: agent writes the file after MCP read)
+- single URL
+- --from-file — URL list (Twos MCP handoff: agent writes the file after MCP read)
+- --from-twos — drain a Twos list via REST (TWOS_API_KEY); optional --to-twos write-back
 """
 
 from __future__ import annotations
@@ -18,7 +19,9 @@ sys.path.insert(0, str(SCRIPTS))
 
 from adapters.url import get_job  # noqa: E402
 from lib.batch_file import run_from_file  # noqa: E402
+from lib.batch_twos import run_from_twos  # noqa: E402
 from lib.pipeline import gather  # noqa: E402
+from lib.twos_client import TwosError  # noqa: E402
 
 EXIT_BY_STATUS = {
     "saved": 0,
@@ -37,14 +40,14 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Extract a recipe, book, album, workout, or other item from Instagram. "
-            "Pass one URL, or drain a URL file with --from-file (Twos MCP path)."
+            "Pass one URL, --from-file (MCP path), or --from-twos (REST)."
         )
     )
     parser.add_argument(
         "url",
         nargs="?",
         default="",
-        help="Instagram post or reel URL (or a shortcode). Omit when using --from-file.",
+        help="Instagram post or reel URL (or a shortcode). Omit when using --from-file / --from-twos.",
     )
     parser.add_argument(
         "--from-file",
@@ -61,13 +64,30 @@ def main(argv: list[str] | None = None) -> int:
         "--twos-source-title",
         default="",
         metavar="TITLE",
-        help="Optional source Twos list title (names the suggested output list)",
+        help="Optional source Twos list title (names the suggested MCP output list)",
     )
     parser.add_argument(
         "--twos-output-title",
         default="",
         metavar="TITLE",
-        help="Optional title for the Twos output list in the emitted payload",
+        help="Optional title for the Twos output list in the emitted MCP payload",
+    )
+    parser.add_argument(
+        "--from-twos",
+        default="",
+        metavar="LIST",
+        help="Twos list name or id whose things contain Instagram links (REST; needs TWOS_API_KEY)",
+    )
+    parser.add_argument(
+        "--to-twos",
+        action="store_true",
+        help="With --from-twos: after each successful save, create things on a new Twos list",
+    )
+    parser.add_argument(
+        "--to-twos-list",
+        default="",
+        metavar="TITLE",
+        help="Title for the new Twos REST output list (implies --to-twos). Default: Gathered from <source> — <date>",
     )
     parser.add_argument(
         "--caption",
@@ -85,7 +105,7 @@ def main(argv: list[str] | None = None) -> int:
         "--cookies-from-browser",
         default="",
         metavar="BROWSER",
-        help="yt-dlp cookies source, e.g. chrome, edge, firefox",
+        help="yt-dlp cookies source, e.g. chrome, edge, firefox, opera",
     )
     parser.add_argument(
         "--overwrite",
@@ -95,13 +115,21 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     from_file = (args.from_file or "").strip()
+    from_twos = (args.from_twos or "").strip()
+    to_twos_list = (args.to_twos_list or "").strip() or None
+    to_twos = bool(args.to_twos or to_twos_list)
     cookies = args.cookies_from_browser or None
+
+    if from_file and from_twos:
+        parser.error("Pass either --from-file or --from-twos, not both")
 
     if from_file:
         if args.url:
             parser.error("Pass either a URL or --from-file, not both")
         if args.caption or args.media:
             parser.error("--caption / --media only apply to single-URL mode")
+        if to_twos or to_twos_list:
+            parser.error("--to-twos / --to-twos-list require --from-twos (REST), not --from-file")
         try:
             batch = run_from_file(
                 Path(from_file),
@@ -118,11 +146,35 @@ def main(argv: list[str] | None = None) -> int:
         _emit(batch.to_dict())
         return EXIT_BY_STATUS.get(batch.worst_exit_status, 1)
 
+    if from_twos:
+        if args.url:
+            parser.error("Pass either a URL or --from-twos, not both")
+        if args.caption or args.media:
+            parser.error("--caption / --media only apply to single-URL mode")
+        if args.emit_twos_payload or args.twos_source_title or args.twos_output_title:
+            parser.error("--emit-twos-payload / --twos-*-title are for --from-file (MCP), not --from-twos")
+        try:
+            batch = run_from_twos(
+                from_twos,
+                root=ROOT,
+                to_twos=to_twos,
+                to_twos_list=to_twos_list,
+                cookies_from_browser=cookies,
+                overwrite=args.overwrite,
+            )
+        except TwosError as exc:
+            _emit({"status": "error", "message": str(exc)})
+            return 1
+        _emit(batch.to_dict())
+        return EXIT_BY_STATUS.get(batch.worst_exit_status, 1)
+
     if args.emit_twos_payload or args.twos_source_title or args.twos_output_title:
         parser.error("--emit-twos-payload / --twos-*-title require --from-file")
+    if to_twos or to_twos_list:
+        parser.error("--to-twos / --to-twos-list require --from-twos")
 
     if not (args.url or "").strip():
-        parser.error("Instagram URL is required unless --from-file is set")
+        parser.error("Instagram URL is required unless --from-file or --from-twos is set")
 
     job = get_job(args.url, caption=args.caption or None, media_paths=args.media)
     result = gather(
