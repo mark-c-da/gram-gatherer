@@ -14,7 +14,10 @@ Repo root is the directory that contains `scripts/gather.py` and `library/`.
 - User pastes an `instagram.com` `/p/`, `/reel/`, or `/reels/` URL
 - User asks to gather, extract, or save a saved Instagram post
 
-v1 is **one URL per run**. If they paste several, process sequentially.
+v1 is **one URL per CLI invocation**. If they paste several, process sequentially — or write them to a file and use `--from-file` (see Twos MCP skill / [docs/PATHS.md](../../../docs/PATHS.md)).
+
+For **Twos MCP** drain + write-back (no API key), use skill `gram-gatherer-twos-mcp`.
+For **Twos REST** headless batch (`TWOS_API_KEY`), see Workflow 1 / PATHS.md path C.
 
 ## Workflow
 
@@ -81,8 +84,9 @@ Then re-run `gather.py` with those flags.
 Caption is the first content check, not a fallback. Do not skip ahead to OCR or Whisper while a usable caption exists.
 
 1. **Caption** (yt-dlp metadata or a pasted caption). If it already names the recipe, books, album, or workout, write the file and stop. No download, OCR, or Whisper.
-2. **Carousel / stills** — OCR (Tesseract). If images are in chat, you may also read them with vision and merge useful text into the file after the CLI write.
-3. **Reel / video** — audio then Whisper. Missing Whisper/ffmpeg is a skip, not a hard fail.
+2. **Carousel only** — OCR (Tesseract) when there are **2+ stills and no video**. Never OCR reel/video thumbnails or a lone oEmbed thumb. HEIC/HEIF slides are included.
+3. **Reel / video** — Whisper on audio. If caption+Whisper are still thin, **sample frames by duration** (max 12), OCR them (`ocr-frames`), and copy JPEGs to `archive/frames/<shortcode>/` for accuracy review (gitignored; cache still clears after save).
+4. Missing Whisper/ffmpeg/Tesseract is a skip, not a hard fail.
 
 ## Dedup
 
@@ -167,7 +171,11 @@ When tidying after `saved`, keep frontmatter and the `## Raw` section. Improve t
 
 ## Input adapters
 
-v1 input is a single URL (`scripts/adapters/url.py`). Do not implement Twos export, inbox drain, or URL-file batching unless the user asks. Those stubs live next to the URL adapter on purpose.
+- `scripts/adapters/url.py` — single Instagram URL
+- `scripts/adapters/file.py` — URL list file (`--from-file`, Twos MCP handoff)
+- `twos.py` / `inbox.py` — REST Twos drain is on the Workflow 1 branch; inbox still a stub
+
+Path chooser: [docs/PATHS.md](../../../docs/PATHS.md).
 
 ## Reply shape
 

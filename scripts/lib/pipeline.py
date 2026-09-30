@@ -82,6 +82,7 @@ def gather(
             fetched,
             caption_override=user_caption or None,
             skip_media=True,
+            repo_root=root,
         )
         return _commit(
             root, library, index_path, idx, ref, fetched, extracted, overwrite, cache_dir
@@ -132,6 +133,7 @@ def gather(
         fetched,
         caption_override=user_caption or None,
         skip_media=False,
+        repo_root=root,
     )
     if not extracted.caption and caption:
         extracted.caption = caption
