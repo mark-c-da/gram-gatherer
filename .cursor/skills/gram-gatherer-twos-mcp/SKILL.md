@@ -58,6 +58,8 @@ python scripts/gather.py --from-file cache/twos-mcp-urls.txt --emit-twos-payload
   --cookies-from-browser chrome
 ```
 
+Opera is the browser that works on this machine. Cookies are copied once for the file; each URL then does one metadata call, and a second call only when the caption is thin (thumbnails for an image carousel, the video for a reel).
+
 ### Step 3 — Handle per-URL statuses
 
 Same codes as single-URL gather (`saved` / `duplicate` / `needs_media` / `error`).

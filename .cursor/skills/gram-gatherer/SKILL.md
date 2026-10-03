@@ -44,7 +44,9 @@ Cookies (Instagram often requires a logged-in browser):
 python scripts/gather.py "URL" --cookies-from-browser chrome
 ```
 
-Use `edge`, `firefox`, or `opera` if that is where they are logged into Instagram. `GRAM_COOKIES_FROM_BROWSER` also works.
+Use `edge`, `firefox`, or `opera` if that is where they are logged into Instagram. `GRAM_COOKIES_FROM_BROWSER` also works. The browser cookie database is copied once per run; a batch reuses `cache/cookies.txt`.
+
+A thin caption does not fetch metadata again. Image carousels download slide thumbnails only. Reels download the video only.
 
 Optional user-supplied media (after a `needs_media` miss):
 
