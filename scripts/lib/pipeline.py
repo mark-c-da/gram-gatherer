@@ -8,8 +8,9 @@ from pathlib import Path
 
 from adapters.job import Job
 from lib.classify import caption_sufficient, structure_item
+from lib.error_log import append_error_log
 from lib.extract import ExtractResult, extract_text
-from lib.fetch import FetchResult, attach_user_media, fetch_post
+from lib.fetch import FetchResult, attach_user_media, fetch_media, fetch_metadata
 from lib import index as index_mod
 from lib.parse import parse_instagram_url
 from lib.write import write_item
@@ -55,24 +56,30 @@ def gather(
     try:
         ref = parse_instagram_url(job.url)
     except ValueError as exc:
-        return GatherResult(status="error", message=str(exc))
+        return _logged(root, GatherResult(status="error", message=str(exc)))
 
     idx = index_mod.load_index(index_path)
     existing = index_mod.lookup(idx, ref.shortcode)
     if existing and not overwrite:
-        return GatherResult(
-            status="duplicate",
-            shortcode=ref.shortcode,
-            url=ref.url,
-            path=existing,
-            message=f"Already saved at {existing}",
+        return _logged(
+            root,
+            GatherResult(
+                status="duplicate",
+                shortcode=ref.shortcode,
+                url=ref.url,
+                path=existing,
+                message=f"Already saved at {existing}",
+            ),
         )
 
     cache_dir = cache_root / ref.shortcode
+    cookie_file = cache_root / "cookies.txt"
     user_caption = (job.caption or "").strip()
     user_media = list(job.media_paths)
 
-    fetched = _caption_only(ref, cache_dir, cookies_from_browser, user_caption)
+    fetched = _caption_only(
+        ref, cache_dir, cookies_from_browser, user_caption, cookie_file
+    )
     if user_media:
         attach_user_media(fetched, user_media)
 
@@ -84,49 +91,64 @@ def gather(
             skip_media=True,
             repo_root=root,
         )
-        return _commit(
-            root, library, index_path, idx, ref, fetched, extracted, overwrite, cache_dir
+        return _logged(
+            root,
+            _commit(
+                root, library, index_path, idx, ref, fetched, extracted, overwrite, cache_dir
+            ),
         )
 
     if not caption_sufficient(caption) and not fetched.media_files:
-        fetched = fetch_post(
-            ref,
+        # A pasted caption never contacted Instagram. One metadata call, then media.
+        if user_caption and fetched.media_kind == "unknown" and not fetched.errors:
+            fetched = fetch_metadata(
+                ref,
+                cache_dir,
+                cookies_from_browser,
+                cookie_file=cookie_file,
+            )
+            if not fetched.caption or len(user_caption) >= len(fetched.caption):
+                fetched.caption = user_caption
+        fetch_media(
+            fetched,
             cache_dir,
             cookies_from_browser,
-            need_media=True,
+            cookie_file=cookie_file,
         )
-        if user_caption and (
-            not fetched.caption or len(user_caption) >= len(fetched.caption)
-        ):
-            fetched.caption = user_caption
         if user_media:
             attach_user_media(fetched, user_media)
         caption = fetched.caption.strip()
 
     if not caption and not fetched.media_files:
-        return GatherResult(
-            status="needs_media",
-            shortcode=ref.shortcode,
-            url=ref.url,
-            message=(
-                "Could not fetch a caption or media. Paste the caption and/or "
-                "drop the video or screenshots, then re-run with --caption / --media."
+        return _logged(
+            root,
+            GatherResult(
+                status="needs_media",
+                shortcode=ref.shortcode,
+                url=ref.url,
+                message=(
+                    "Could not fetch a caption or media. Paste the caption and/or "
+                    "drop the video or screenshots, then re-run with --caption / --media."
+                ),
+                errors=fetched.errors,
             ),
-            errors=fetched.errors,
         )
 
     if not caption_sufficient(caption) and not fetched.media_files:
-        return GatherResult(
-            status="needs_media",
-            shortcode=ref.shortcode,
-            url=ref.url,
-            message=(
-                "Caption is too thin to extract a recipe, book, album, or workout, and no "
-                "media was downloaded. Paste the caption and/or drop the video "
-                "or screenshots, then re-run with --caption / --media."
+        return _logged(
+            root,
+            GatherResult(
+                status="needs_media",
+                shortcode=ref.shortcode,
+                url=ref.url,
+                message=(
+                    "Caption is too thin to extract a recipe, book, album, or workout, and no "
+                    "media was downloaded. Paste the caption and/or drop the video "
+                    "or screenshots, then re-run with --caption / --media."
+                ),
+                errors=fetched.errors,
+                sources_used=["caption"] if caption else [],
             ),
-            errors=fetched.errors,
-            sources_used=["caption"] if caption else [],
         )
 
     extracted = extract_text(
@@ -140,9 +162,17 @@ def gather(
         if "caption" not in extracted.sources_used and "user-paste" not in extracted.sources_used:
             extracted.sources_used.insert(0, "caption")
 
-    return _commit(
-        root, library, index_path, idx, ref, fetched, extracted, overwrite, cache_dir
+    return _logged(
+        root,
+        _commit(
+            root, library, index_path, idx, ref, fetched, extracted, overwrite, cache_dir
+        ),
     )
+
+
+def _logged(root: Path, result: GatherResult) -> GatherResult:
+    append_error_log(root, result)
+    return result
 
 
 def _caption_only(
@@ -150,13 +180,19 @@ def _caption_only(
     cache_dir: Path,
     cookies_from_browser: str | None,
     user_caption: str,
+    cookie_file: Path,
 ) -> FetchResult:
     if user_caption:
         fetched = FetchResult(ref=ref)
         fetched.caption = user_caption
         fetched.fetch_ok = True
         return fetched
-    return fetch_post(ref, cache_dir, cookies_from_browser, need_media=False)
+    return fetch_metadata(
+        ref,
+        cache_dir,
+        cookies_from_browser,
+        cookie_file=cookie_file,
+    )
 
 
 def _commit(

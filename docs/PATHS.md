@@ -34,6 +34,8 @@ flowchart TD
 
 Silent on-screen reels use frame OCR after Whisper. Sampled JPEGs are archived under `archive/frames/` for accuracy review (not cleared with `cache/`).
 
+Fetch is two calls at most. Metadata runs once. A caption that already has the list stops there. A thin image carousel fetches thumbnails only. A thin reel downloads the video only. Browser cookies are copied once per run into `cache/cookies.txt`.
+
 ## A — Chat paste
 
 1. User pastes Instagram URL(s).

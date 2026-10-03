@@ -11,7 +11,7 @@ Paste Instagram post/reel URLs (or drain a Twos list). A Python CLI extracts rec
 - **HEIC/HEIF slides:** Instagram carousel thumbs in `.heic` are treated as images (`pillow-heif`)
 - **Reels → Whisper:** audio transcription when caption is thin
 - **Silent reel frame OCR:** if Whisper is still thin, sample up to 12 frames by duration, OCR them, archive JPEGs under `archive/frames/`
-- **Cookies:** on this machine, **Opera** works best (`--cookies-from-browser opera`). Close Opera briefly if yt-dlp can’t copy the cookie DB
+- **Cookies:** on this machine, **Opera** works best (`--cookies-from-browser opera`). The browser cookie database is copied once per run into `cache/cookies.txt`; later posts in that run reuse the file. Close Opera briefly if that first copy fails.
 
 ## Workflow diagram
 
@@ -101,13 +101,14 @@ Each successful save still writes `library/...`. It also creates a Twos thing on
 
 - `library/recipes/`, `library/books/`, `library/albums/`, `library/workouts/`, `library/other/` — one markdown file per item
 - `library/index.json` — shortcode → file path (dedup)
-- `cache/` — temporary downloads; deleted after a successful save (gitignored)
+- `cache/` — temporary downloads; `cache/<shortcode>/` is deleted after a successful save. `cache/cookies.txt` stays for the rest of the run (gitignored)
 - `archive/frames/` — sampled reel frames for OCR accuracy review (gitignored)
 - `scripts/gather.py` — CLI (single URL, `--from-file`, or `--from-twos`)
 - `scripts/adapters/url.py` / `file.py` / `twos.py` — inputs
 - `scripts/lib/twos_client.py` / `twos_out.py` — Twos REST + write-back
 - `scripts/lib/extract.py` — caption → carousel OCR → Whisper → frame OCR
 - `docs/PATHS.md` — paste / MCP / REST / file / phone
+- `docs/ERROR-LOG.md` — fetch and needs_media problems, including a save that still carried a yt-dlp error
 
 ## Setup
 
@@ -131,9 +132,9 @@ py -3 scripts/gather.py "URL" --cookies-from-browser opera
 
 | Step | When it runs |
 |---|---|
-| Caption | Always tried first. If sufficient → write and stop |
-| OCR | Only image carousels (2+ stills, no video), including `.heic` |
-| Whisper | Reels/videos when caption is thin |
+| Caption | One yt-dlp metadata call. If the caption already has the list → write and stop. No second metadata call |
+| OCR | Thin caption and the metadata says image carousel: slide thumbnails only (no video download), including `.heic` |
+| Whisper | Thin caption and the metadata says video: one download, then transcribe. The CPU model stays loaded for the rest of the run (`int8`) |
 | Frame OCR | After Whisper, if text is still thin: sample up to 12 frames by duration, OCR them (`ocr-frames`). Stills are copied to `archive/frames/<shortcode>/` (gitignored) for sampling accuracy review; `cache/` still clears after save |
 
 - **OCR:** Tesseract on PATH + `pillow`, `pytesseract`, `pillow-heif`

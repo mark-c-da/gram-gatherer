@@ -474,14 +474,31 @@ def _ffprobe_bin(ffmpeg: str) -> str | None:
     return shutil.which("ffprobe") or shutil.which("ffprobe.exe")
 
 
+_whisper_model = None
+
+
+def _get_whisper_model():
+    """One CPU model for the process. int8 avoids a float16 conversion on each reel."""
+    global _whisper_model
+    if _whisper_model is not None:
+        return _whisper_model
+    from faster_whisper import WhisperModel
+
+    try:
+        _whisper_model = WhisperModel("base", device="cpu", compute_type="int8")
+    except Exception:
+        _whisper_model = WhisperModel("base", device="cpu", compute_type="float32")
+    return _whisper_model
+
+
 def _whisper_faster(path: Path) -> _Piece:
     try:
-        from faster_whisper import WhisperModel
+        from faster_whisper import WhisperModel  # noqa: F401
     except ImportError:
         return _Piece(skipped=["whisper: faster-whisper not installed"])
 
     try:
-        model = WhisperModel("base", device="cpu")
+        model = _get_whisper_model()
         segments, _info = model.transcribe(str(path))
         text = " ".join(seg.text.strip() for seg in segments if getattr(seg, "text", "").strip())
         return _Piece(text=text.strip())

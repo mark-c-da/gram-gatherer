@@ -34,32 +34,88 @@ class FetchResult:
     videos: list[Path] = field(default_factory=list)
     fetch_ok: bool = False
     errors: list[str] = field(default_factory=list)
+    # video: download the file. carousel: thumbnails only. unknown: try video, then thumbs.
+    media_kind: str = "unknown"
 
     @property
     def media_files(self) -> list[Path]:
         return [*self.images, *self.videos]
 
 
-def fetch_post(
+def fetch_metadata(
     ref: InstagramRef,
     cache_dir: Path,
     cookies_from_browser: str | None = None,
     *,
-    need_media: bool = True,
+    cookie_file: Path | None = None,
 ) -> FetchResult:
+    """One yt-dlp metadata call. Does not download video or slide images."""
     result = FetchResult(ref=ref)
     cache_dir.mkdir(parents=True, exist_ok=True)
-    cookies = cookies_from_browser or os.environ.get("GRAM_COOKIES_FROM_BROWSER") or None
+    browser = cookies_from_browser or os.environ.get("GRAM_COOKIES_FROM_BROWSER") or None
 
-    _merge(result, _ytdlp_dump_json(ref, cookies))
+    _merge(result, _ytdlp_dump_json(ref, browser, cookie_file=cookie_file))
     if not result.caption:
         _merge(result, _fetch_oembed(ref, cache_dir))
 
-    if need_media:
-        _merge(result, _fetch_ytdlp_download(ref, cache_dir, cookies))
+    result.fetch_ok = bool(result.caption or result.media_files)
+    return result
+
+
+def fetch_media(
+    result: FetchResult,
+    cache_dir: Path,
+    cookies_from_browser: str | None = None,
+    *,
+    cookie_file: Path | None = None,
+) -> FetchResult:
+    """Download only what the metadata call already said we need.
+
+    Image carousels skip the video download. Reels skip a second metadata call.
+    """
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    browser = cookies_from_browser or os.environ.get("GRAM_COOKIES_FROM_BROWSER") or None
+
+    if result.media_kind == "carousel":
+        _merge(result, _fetch_carousel_thumbs(result.ref, cache_dir, browser, cookie_file=cookie_file))
+    else:
+        _merge(result, _fetch_ytdlp_download(result.ref, cache_dir, browser, cookie_file=cookie_file))
+        if result.media_kind != "video" and not result.videos and len(result.images) < 2:
+            _merge(result, _fetch_carousel_thumbs(result.ref, cache_dir, browser, cookie_file=cookie_file))
 
     result.fetch_ok = bool(result.caption or result.media_files)
     return result
+
+
+def media_kind_from_info(data: dict) -> str:
+    """Classify a yt-dlp info dict before any download."""
+    if not isinstance(data, dict):
+        return "unknown"
+    if data.get("_type") == "playlist":
+        entries = [entry for entry in data.get("entries") or [] if isinstance(entry, dict)]
+        if not entries:
+            return "unknown"
+        if any(_entry_has_video(entry) for entry in entries):
+            return "video"
+        return "carousel"
+    if _entry_has_video(data):
+        return "video"
+    return "unknown"
+
+
+def _entry_has_video(data: dict) -> bool:
+    video_exts = {ext.lstrip(".") for ext in VIDEO_EXTS}
+    for fmt in data.get("formats") or []:
+        if not isinstance(fmt, dict):
+            continue
+        vcodec = fmt.get("vcodec")
+        if vcodec and vcodec != "none":
+            return True
+        if str(fmt.get("ext") or "").lower() in video_exts:
+            return True
+    if str(data.get("ext") or "").lower() in video_exts:
+        return True
+    return False
 
 
 def attach_user_media(result: FetchResult, media_paths: list[Path]) -> None:
@@ -90,7 +146,34 @@ def _merge(target: FetchResult, incoming: FetchResult) -> None:
         target.fetch_ok = True
 
 
-def _ytdlp_cmd(cookies: str | None, *, playlist: bool = False) -> list[str] | None:
+def _cookie_args(browser: str | None, cookie_file: Path | None) -> list[str]:
+    """Use a Netscape cookie file after the first browser copy in this run.
+
+    The first yt-dlp call passes both --cookies-from-browser and --cookies so
+    yt-dlp writes the jar. Later calls only read the file.
+    """
+    ready = (
+        cookie_file is not None
+        and cookie_file.is_file()
+        and cookie_file.stat().st_size > 0
+    )
+    if ready:
+        return ["--cookies", str(cookie_file)]
+    if browser:
+        args = ["--cookies-from-browser", browser]
+        if cookie_file is not None:
+            cookie_file.parent.mkdir(parents=True, exist_ok=True)
+            args.extend(["--cookies", str(cookie_file)])
+        return args
+    return []
+
+
+def _ytdlp_cmd(
+    browser: str | None,
+    *,
+    playlist: bool = False,
+    cookie_file: Path | None = None,
+) -> list[str] | None:
     binary = shutil.which("yt-dlp") or shutil.which("yt-dlp.exe")
     if binary:
         cmd = [binary, "--no-warnings", "--no-progress"]
@@ -104,48 +187,56 @@ def _ytdlp_cmd(cookies: str | None, *, playlist: bool = False) -> list[str] | No
         cmd.extend(["--yes-playlist", "--ignore-no-formats-error"])
     else:
         cmd.append("--no-playlist")
-    if cookies:
-        cmd.extend(["--cookies-from-browser", cookies])
+    cmd.extend(_cookie_args(browser, cookie_file))
     return cmd
 
 
-def _ytdlp_dump_json(ref: InstagramRef, cookies: str | None) -> FetchResult:
+def _ytdlp_dump_json(
+    ref: InstagramRef,
+    browser: str | None,
+    *,
+    cookie_file: Path | None = None,
+) -> FetchResult:
     result = FetchResult(ref=ref)
-    cmd = _ytdlp_cmd(cookies)
+    cmd = _ytdlp_cmd(browser, playlist=True, cookie_file=cookie_file)
     if not cmd:
         result.errors.append("yt-dlp not installed (pip install yt-dlp)")
         return result
-    cmd = [*cmd, "--dump-json", "--skip-download", ref.url]
+    cmd = [*cmd, "--dump-single-json", "--skip-download", ref.url]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=90, check=False)
     except (OSError, subprocess.TimeoutExpired) as exc:
         result.errors.append(f"yt-dlp metadata failed: {exc}")
         return result
-    if proc.returncode != 0:
+    raw = (proc.stdout or "").strip()
+    data = None
+    if raw:
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            data = None
+    if not isinstance(data, dict):
         err = (proc.stderr or proc.stdout or "yt-dlp metadata failed").strip().splitlines()
-        result.errors.append(err[-1] if err else "yt-dlp metadata failed")
+        result.errors.append(err[-1] if err else "yt-dlp metadata was not JSON")
         return result
-    line = (proc.stdout or "").strip().splitlines()
-    if not line:
-        result.errors.append("yt-dlp returned empty metadata")
-        return result
-    try:
-        data = json.loads(line[0])
-    except json.JSONDecodeError:
-        result.errors.append("yt-dlp metadata was not JSON")
-        return result
-    fake = FetchResult(ref=ref)
-    _apply_info_dict(data, fake)
-    return fake
+    result.media_kind = media_kind_from_info(data)
+    _apply_info_dict(data, result)
+    if proc.returncode != 0 and not result.caption:
+        err = (proc.stderr or "").strip().splitlines()
+        if err:
+            result.errors.append(err[-1])
+    return result
 
 
 def _fetch_ytdlp_download(
     ref: InstagramRef,
     cache_dir: Path,
-    cookies: str | None,
+    browser: str | None,
+    *,
+    cookie_file: Path | None = None,
 ) -> FetchResult:
     result = FetchResult(ref=ref)
-    cmd = _ytdlp_cmd(cookies)
+    cmd = _ytdlp_cmd(browser, cookie_file=cookie_file)
     if not cmd:
         if "yt-dlp not installed (pip install yt-dlp)" not in result.errors:
             result.errors.append("yt-dlp not installed (pip install yt-dlp)")
@@ -169,19 +260,19 @@ def _fetch_ytdlp_download(
         err = (proc.stderr or proc.stdout or "yt-dlp download failed").strip().splitlines()
         result.errors.append(err[-1] if err else "yt-dlp download failed")
     _scan_cache(cache_dir, result)
-    if not result.media_files:
-        _merge(result, _fetch_carousel_thumbs(ref, cache_dir, cookies))
     return result
 
 
 def _fetch_carousel_thumbs(
     ref: InstagramRef,
     cache_dir: Path,
-    cookies: str | None,
+    browser: str | None,
+    *,
+    cookie_file: Path | None = None,
 ) -> FetchResult:
     """Image carousels have no video formats; grab slide thumbnails instead."""
     result = FetchResult(ref=ref)
-    cmd = _ytdlp_cmd(cookies, playlist=True)
+    cmd = _ytdlp_cmd(browser, playlist=True, cookie_file=cookie_file)
     if not cmd:
         return result
     out_tmpl = str(cache_dir / "%(playlist_index)s-%(id)s.%(ext)s")
